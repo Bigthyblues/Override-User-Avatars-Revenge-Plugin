@@ -1,5 +1,5 @@
-import { readFile, writeFile, readdir } from "fs/promises";
-import { extname } from "path";
+import { readFile, writeFile, readdir, mkdir } from "fs/promises";
+import { dirname, extname } from "path";
 import { createHash } from "crypto";
 
 import { rollup } from "rollup";
@@ -53,6 +53,7 @@ for (let plug of await readdir("./plugins")) {
     const outPath = `./dist/${plug}/index.js`;
 
     try {
+        await mkdir(dirname(outPath), { recursive: true });
         const bundle = await rollup({
             input: `./plugins/${plug}/${manifest.main}`,
             onwarn: () => {},

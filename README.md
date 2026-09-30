@@ -9,7 +9,7 @@ Original plugin by [Furretar](https://github.com/Furretar). The original attribu
 Paste this URL into Revenge's **Install Plugin** screen:
 
 ```text
-https://furretar.github.io/Override-User-Avatars-Revenge-Plugin/Override-User-Avatars
+https://bigthyblues.github.io/Override-User-Avatars-Revenge-Plugin/Override-User-Avatars/
 ```
 
 Then enter a Discord user ID and a direct `http://` or `https://` image URL. For example:
@@ -75,9 +75,18 @@ Startup reports whether the helper and component modules were found and which ho
 ```sh
 pnpm install
 pnpm build
+pnpm verify
 ```
 
 The generated Revenge-installable files are written to `dist/Override-User-Avatars/` (`manifest.json` plus `index.js`).
+
+After a successful deployment from `master`, import the plugin into Revenge with:
+
+```text
+https://bigthyblues.github.io/Override-User-Avatars-Revenge-Plugin/Override-User-Avatars/
+```
+
+The workflow publishes through GitHub's official Pages artifact deployment and shows the deployed site URL in the `github-pages` environment. It can also be rerun manually from **Actions → Build and deploy Revenge plugin → Run workflow**. A deployment is stopped before publishing if the generated manifest, entry point, version, bundle, or SHA-256 hash is invalid.
 
 ## Preview
 

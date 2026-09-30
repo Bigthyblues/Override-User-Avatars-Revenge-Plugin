@@ -1,50 +1,62 @@
-name: Build and deploy
+name: Build and deploy Revenge plugin
 
 on:
-    push:
-        branches: [master]
-    workflow_dispatch:
-    
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
-    deploy:
-        runs-on: ubuntu-latest
-        permissions:
-          contents: write
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
-        steps:
-            - uses: actions/checkout@v3
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-            - name: Prepare environment
-              uses: actions/setup-node@v3
-              with:
-                  node-version: "18"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
-            - run: npm install --global pnpm
+      - name: Enable pinned pnpm
+        run: corepack enable
 
-            - name: Install deps
-              run: pnpm m i
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
 
-            - name: Build plugin(s)
-              run: node ./build.mjs
+      - name: Build plugin
+        run: pnpm build
 
-              # Foolproof feature:
-              # - Copies over README so that the root of the deployed website shows it
-              # - Changes 404 page to README so that you don't get lost while clicking links
-              # If you remove this step then you should probably remove the enable_jekyll option in the next one
-            - name: Copy additional files
-              run: |
-                  cp README.md dist/README.md
-                  printf -- "---\npermalink: /404.html\n---\n" > dist/404.md
-                  printf -- "> **Note:** You accessed a link that returned a 404, probably by clicking one of the plugin links. You're supposed to copy the link address and add it into Vendetta.\n\n" >> dist/404.md
-                  cat README.md >> dist/404.md
+      - name: Verify Revenge artifacts
+        run: pnpm verify
 
-              # Documentation: https://github.com/peaceiris/actions-gh-pages
-            - name: Deploy to GitHub Pages
-              uses: peaceiris/actions-gh-pages@v3
-              with:
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
-                  publish_dir: ./dist
-                  # Makes it so the md files in the previous step get processed by GitHub Pages
-                  enable_jekyll: true
-                  # This creates the CNAME file required to host GitHub Pages on a custom domain
-                  # cname: example.com
+      - name: Add site documentation
+        run: |
+          cp README.md dist/README.md
+          touch dist/.nojekyll
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
