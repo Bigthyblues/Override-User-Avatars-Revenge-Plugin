@@ -1,49 +1,69 @@
-name: Build and deploy
+name: Build and deploy Revenge plugin (gh-pages branch)
+run-name: Publish Revenge plugin from ${{ github.sha }}
 
 on:
-    push:
-        branches: [master]
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: write
 
 jobs:
-    deploy:
-        runs-on: ubuntu-latest
-        permissions:
-          contents: write
+  publish-gh-pages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Identify deployment workflow
+        run: |
+          echo "Workflow revision: gh-pages-branch-v2"
+          echo "Commit: $GITHUB_SHA"
 
-        steps:
-            - uses: actions/checkout@v3
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-            - name: Prepare environment
-              uses: actions/setup-node@v3
-              with:
-                  node-version: "18"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
-            - run: npm install --global pnpm
+      - name: Enable pinned pnpm
+        run: corepack enable
 
-            - name: Install deps
-              run: pnpm m i
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
 
-            - name: Build plugin(s)
-              run: node ./build.mjs
+      - name: Build plugin
+        run: pnpm build
 
-              # Foolproof feature:
-              # - Copies over README so that the root of the deployed website shows it
-              # - Changes 404 page to README so that you don't get lost while clicking links
-              # If you remove this step then you should probably remove the enable_jekyll option in the next one
-            - name: Copy additional files
-              run: |
-                  cp README.md dist/README.md
-                  printf -- "---\npermalink: /404.html\n---\n" > dist/404.md
-                  printf -- "> **Note:** You accessed a link that returned a 404, probably by clicking one of the plugin links. You're supposed to copy the link address and add it into Vendetta.\n\n" >> dist/404.md
-                  cat README.md >> dist/404.md
+      - name: Verify Revenge artifacts
+        run: pnpm verify
 
-              # Documentation: https://github.com/peaceiris/actions-gh-pages
-            - name: Deploy to GitHub Pages
-              uses: peaceiris/actions-gh-pages@v3
-              with:
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
-                  publish_dir: ./dist
-                  # Makes it so the md files in the previous step get processed by GitHub Pages
-                  enable_jekyll: true
-                  # This creates the CNAME file required to host GitHub Pages on a custom domain
-                  # cname: example.com
+      - name: Add site documentation
+        run: |
+          cp README.md dist/README.md
+          touch dist/.nojekyll
+
+      # Do not call the Pages REST API here. GITHUB_TOKEN cannot create a Pages
+      # site in repositories where Pages has not already been enabled, which
+      # causes "Resource not accessible by integration". Publishing a branch
+      # only needs contents:write and works before the one-time Pages setting.
+      - name: Publish gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          force_orphan: true
+
+      - name: Show Revenge import URL
+        run: |
+          echo "## Revenge plugin deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published the verified files to the \`gh-pages\` branch." >> "$GITHUB_STEP_SUMMARY"
+          echo "After selecting **Deploy from a branch / gh-pages / root** in repository Settings → Pages, import:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          echo "https://bigthyblues.github.io/Override-User-Avatars-Revenge-Plugin/Override-User-Avatars/" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
