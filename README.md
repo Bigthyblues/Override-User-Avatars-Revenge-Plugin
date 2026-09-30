@@ -86,7 +86,20 @@ After a successful deployment from `master`, import the plugin into Revenge with
 https://bigthyblues.github.io/Override-User-Avatars-Revenge-Plugin/Override-User-Avatars/
 ```
 
-The workflow publishes through GitHub's official Pages artifact deployment and shows the deployed site URL in the `github-pages` environment. It can also be rerun manually from **Actions → Build and deploy Revenge plugin → Run workflow**. A deployment is stopped before publishing if the generated manifest, entry point, version, bundle, or SHA-256 hash is invalid.
+The workflow publishes the verified files to the `gh-pages` branch and can be rerun manually from **Actions → Build and deploy Revenge plugin → Run workflow**. A deployment is stopped before publishing if the generated manifest, entry point, version, bundle, or SHA-256 hash is invalid.
+
+### One-time GitHub Pages setup
+
+`GITHUB_TOKEN` is allowed to push the deployment branch, but GitHub may forbid it from creating/enabling a Pages site through the Pages REST API (`Resource not accessible by integration`). Therefore, after the first successful workflow run, a repository administrator must do this once:
+
+1. Open **Settings → Pages**.
+2. Under **Build and deployment**, choose **Deploy from a branch**.
+3. Select the **`gh-pages`** branch and **`/(root)`**, then press **Save**.
+4. Wait for GitHub Pages to publish, then paste the import URL above into Revenge.
+
+The workflow deliberately does not call `actions/configure-pages` and does not need repository-administration permission. Later pushes to `master` or `main` update the same `gh-pages` branch automatically.
+
+> **Do not use “Re-run jobs” on an older failed run.** GitHub re-runs the workflow file from that run's original commit, so it will execute the removed `actions/configure-pages@v5` step again. Merge/push the fixed workflow, then start a new run from **Actions → Build and deploy Revenge plugin (gh-pages branch) → Run workflow**. The correct run is named `Publish Revenge plugin from …`, its job is `publish-gh-pages`, and its log begins with `Workflow revision: gh-pages-branch-v2`. If the annotations still mention `actions/configure-pages`, that run is definitively using an old commit rather than this workflow.
 
 ## Preview
 

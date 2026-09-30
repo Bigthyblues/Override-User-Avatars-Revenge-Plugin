@@ -1,8 +1,9 @@
-name: Build and deploy Revenge plugin
+name: Build and deploy Revenge plugin (gh-pages branch)
+run-name: Publish Revenge plugin from ${{ github.sha }}
 
 on:
   push:
-    branches: [master]
+    branches: [master, main]
   workflow_dispatch:
 
 concurrency:
@@ -10,18 +11,17 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 jobs:
-  deploy:
+  publish-gh-pages:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
+      - name: Identify deployment workflow
+        run: |
+          echo "Workflow revision: gh-pages-branch-v2"
+          echo "Commit: $GITHUB_SHA"
+
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -47,16 +47,23 @@ jobs:
           cp README.md dist/README.md
           touch dist/.nojekyll
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+      # Do not call the Pages REST API here. GITHUB_TOKEN cannot create a Pages
+      # site in repositories where Pages has not already been enabled, which
+      # causes "Resource not accessible by integration". Publishing a branch
+      # only needs contents:write and works before the one-time Pages setting.
+      - name: Publish gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          enablement: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          force_orphan: true
 
-      - name: Upload GitHub Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-      - name: Deploy GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Show Revenge import URL
+        run: |
+          echo "## Revenge plugin deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published the verified files to the \`gh-pages\` branch." >> "$GITHUB_STEP_SUMMARY"
+          echo "After selecting **Deploy from a branch / gh-pages / root** in repository Settings → Pages, import:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          echo "https://bigthyblues.github.io/Override-User-Avatars-Revenge-Plugin/Override-User-Avatars/" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
