@@ -18,7 +18,17 @@ Then enter a Discord user ID and a direct `http://` or `https://` image URL. For
 https://i.imgur.com/yZ5wSQC.png
 ```
 
-Use **Test / Refresh** after changing a value if an already-open screen does not redraw. Reinstalling the plugin is not necessary: hooks read the live settings each time they run.
+The ID must be the **person's User ID**, not the current channel ID, server ID, message ID, or role ID. Snowflake IDs look alike, but a channel ID can never match `user.id`, so using one intentionally changes no avatar.
+
+To copy the correct ID on Discord Android:
+
+1. Enable **Settings → Advanced → Developer Mode**.
+2. Open or long-press the target person's profile/avatar.
+3. Choose **Copy User ID** (not **Copy Channel ID**).
+4. Paste it into **Target User ID**, paste the image URL, and keep **Enabled** on.
+5. Tap **Test / Refresh**, close the currently open profile/channel, and reopen a view containing that person.
+
+The settings page reports a known channel ID as an error. Use **Test / Refresh** after changing a value if an already-open screen does not redraw. Reinstalling the plugin is not necessary: hooks read the live settings each time they run.
 
 ## Version 2.0 design
 

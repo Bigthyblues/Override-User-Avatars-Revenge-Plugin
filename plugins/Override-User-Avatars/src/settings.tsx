@@ -2,7 +2,7 @@ import { ReactNative } from "@vendetta/metro/common";
 import { storage } from "@vendetta/plugin";
 import { useProxy } from "@vendetta/storage";
 import { Forms } from "@vendetta/ui/components";
-import { refreshClient } from "./index";
+import { getConfigurationStatus, refreshClient } from "./index";
 
 const { FormDivider, FormInput, FormRow, FormSwitch } = Forms;
 
@@ -15,6 +15,11 @@ export default function Settings() {
                 label="Enabled"
                 value={storage.enabled !== false}
                 onValueChange={(value: boolean) => { storage.enabled = value; refreshClient(); }}
+            />
+            <FormDivider />
+            <FormRow
+                label="Target User ID (not Channel ID)"
+                subLabel="Enable Discord Developer Mode, open/long-press the person's profile, then use Copy User ID."
             />
             <FormDivider />
             <FormRow label="User ID" />
@@ -30,6 +35,8 @@ export default function Settings() {
                 value={storage.imageUrl || ""}
                 onChange={(value: string) => (storage.imageUrl = value.trim())}
             />
+            <FormDivider />
+            <FormRow label="Configuration status" subLabel={getConfigurationStatus()} />
             <FormDivider />
             <FormSwitch
                 label="Debug logging"

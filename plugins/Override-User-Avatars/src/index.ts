@@ -26,6 +26,29 @@ function config(): Config | null {
     return { enabled: true, targetUserId, imageUrl: parsed.href, debug: storage.debug === true };
 }
 
+function isKnownChannelId(id: string): boolean {
+    try {
+        return Boolean(findByStoreName("ChannelStore")?.getChannel(id));
+    } catch {
+        return false;
+    }
+}
+
+export function getConfigurationStatus(): string {
+    const targetUserId = String(storage.targetUserId ?? "").trim();
+    const imageUrl = String(storage.imageUrl ?? "").trim();
+    if (!SNOWFLAKE.test(targetUserId)) return "Enter the target person's User ID (not a channel/server ID).";
+    if (isKnownChannelId(targetUserId)) return "This is a Channel ID. Long-press the person's profile and copy their User ID.";
+    try {
+        const parsed = new URL(imageUrl);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error();
+    } catch {
+        return "Enter a complete http:// or https:// image URL.";
+    }
+    if (storage.enabled === false) return "Configured, but currently disabled.";
+    return "Configuration looks valid. Tap Test / Refresh, then reopen a view containing that user.";
+}
+
 function logOnce(path: string, message: string): void {
     if (loggedPaths.has(path)) return;
     loggedPaths.add(path);
@@ -111,7 +134,15 @@ function patchAvatarComponent(module: Record<string, any>): void {
 export function refreshClient(): void {
     const targetUserId = String(storage.targetUserId ?? "").trim();
     if (!SNOWFLAKE.test(targetUserId)) {
-        console.log(`${TAG} refresh skipped: enter a valid Discord user ID`);
+        console.log(`${TAG} refresh skipped: enter the target person's User ID, not a channel ID`);
+        return;
+    }
+    if (isKnownChannelId(targetUserId)) {
+        console.log(`${TAG} refresh skipped: configured ID belongs to a channel; copy the person's User ID instead`);
+        return;
+    }
+    if (!config() && storage.enabled !== false) {
+        console.log(`${TAG} refresh skipped: enter a complete HTTP(S) image URL`);
         return;
     }
     try {
@@ -131,20 +162,22 @@ export function onLoad(): void {
     loggedPaths.clear();
     console.log(`${TAG} loading`);
 
-    const avatarModule = findByProps("getUserAvatarURL");
-    console.log(`${TAG} avatar helper module: ${avatarModule ? "found" : "not found"}`);
-    if (avatarModule) {
-        for (const method of ["getUserAvatarURL", "getUserAvatarSource"]) {
-            try { patchHelper(avatarModule, method); }
-            catch (error) { console.log(`${TAG} could not install helper hook: ${method}`, error); }
-        }
+    const helperModules = new Map<string, Record<string, any> | undefined>([
+        ["getUserAvatarURL", findByProps("getUserAvatarURL")],
+        ["getUserAvatarSource", findByProps("getUserAvatarSource")],
+    ]);
+    for (const [method, module] of helperModules) {
+        console.log(`${TAG} ${method} module: ${module ? "found" : "not found"}`);
+        if (!module) continue;
+        try { patchHelper(module, method); }
+        catch (error) { console.log(`${TAG} could not install helper hook: ${method}`, error); }
     }
 
     // Discord 347 has call sites which render Avatar directly instead of using the helpers.
     // This is deliberately scoped to the named Avatar export and never patches RN Image.
     const avatarComponentModule = findByProps("Avatar", "AvatarSizes");
     console.log(`${TAG} Avatar component module: ${avatarComponentModule ? "found" : "not found"}`);
-    if (avatarComponentModule && avatarComponentModule !== avatarModule) {
+    if (avatarComponentModule) {
         try { patchAvatarComponent(avatarComponentModule); }
         catch (error) { console.log(`${TAG} could not install Avatar component hook`, error); }
     }
