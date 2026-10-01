@@ -30,6 +30,17 @@ To copy the correct ID on Discord Android:
 
 The settings page reports a known channel ID as an error. Use **Test / Refresh** after changing a value if an already-open screen does not redraw. Reinstalling the plugin is not necessary: hooks read the live settings each time they run.
 
+## Local image cache and runtime status (2.1)
+
+Press **Download / Refresh local image** after entering a URL. The plugin downloads the image once (images larger than 5 MiB are rejected), validates that the response is an image, converts it to a persistent data URL in the plugin's local storage, and uses that local value on later renders and app starts. It contacts the image host again only when the configured URL changes, the cache is missing, or the button is pressed explicitly. This cache is local Revenge plugin data; it is never uploaded to Discord.
+
+The settings screen distinguishes two kinds of state:
+
+- **Configuration status** validates the ID, URL, and Enabled switch.
+- **Runtime status** reports module discovery, installed hook count, image download/cache errors, and the first render path that actually replaced an avatar. `Loaded` means hooks exist; `Working: last replacement used …` is the positive confirmation that a target avatar reached a hook.
+
+Avatar modules can be initialized after the plugin during Discord startup. Version 2.1 retries scoped module discovery for up to 20 seconds, without patching the global Image component. This reduces startup races while retaining complete unpatch behavior when the plugin is disabled.
+
 ## Version 2.0 design
 
 The 1.x implementation copied `targetUserId` and `imageUrl` into constants during `onLoad`. A settings change therefore could not affect installed hooks until the plugin was reloaded. It also replaced two properties directly and assumed every avatar went through `getUserAvatarURL` or `getUserAvatarSource`.

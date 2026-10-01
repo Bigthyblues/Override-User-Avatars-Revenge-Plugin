@@ -2,7 +2,7 @@ import { ReactNative } from "@vendetta/metro/common";
 import { storage } from "@vendetta/plugin";
 import { useProxy } from "@vendetta/storage";
 import { Forms } from "@vendetta/ui/components";
-import { getConfigurationStatus, refreshClient } from "./index";
+import { cacheConfiguredImage, getConfigurationStatus, getRuntimeStatus, refreshClient } from "./index";
 
 const { FormDivider, FormInput, FormRow, FormSwitch } = Forms;
 
@@ -37,6 +37,13 @@ export default function Settings() {
             />
             <FormDivider />
             <FormRow label="Configuration status" subLabel={getConfigurationStatus()} />
+            <FormDivider />
+            <FormRow label="Runtime status" subLabel={getRuntimeStatus()} />
+            <FormRow
+                label="Download / Refresh local image"
+                subLabel="Downloads once (maximum 5 MiB) and then renders the persistent local copy."
+                onPress={() => void cacheConfiguredImage(true)}
+            />
             <FormDivider />
             <FormSwitch
                 label="Debug logging"
