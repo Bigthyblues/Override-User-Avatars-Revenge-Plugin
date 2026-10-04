@@ -231,7 +231,6 @@ function patchHelper(module: Record<string, any>, method: string): void {
     });
     console.log(`${TAG} installed helper hook: ${method}`);
 }
-
 function patchAvatarComponent(module: Record<string, any>): void {
     if (typeof module?.Avatar !== "function") return;
     const methods = patchedMethods.get(module) ?? new Set<string>();

@@ -21,6 +21,8 @@ export default function Settings() {
                 label="Target User ID (not Channel ID)"
                 subLabel="Enable Discord Developer Mode, open/long-press the person's profile, then use Copy User ID."
             />
+            <FormDivider />
+            <FormRow label="User ID" />
             <FormInput
                 placeholder="Enter a Discord user ID"
                 value={storage.targetUserId || ""}
