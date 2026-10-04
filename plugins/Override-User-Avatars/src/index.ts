@@ -16,28 +16,60 @@ let loaded = false;
 let cacheInFlight = false;
 const patchedMethods = new WeakMap<object, Set<string>>();
 
-type Config = { enabled: boolean; targetUserId: string; imageUrl: string; debug: boolean };
+type Rule = { targetUserId: string; remoteUrl: string };
+type Config = { targetUserId: string; imageUrl: string; debug: boolean };
 
-function config(): Config | null {
-    const targetUserId = String(storage.targetUserId ?? "").trim();
-    const imageUrl = String(storage.imageUrl ?? "").trim();
-    let parsed: URL;
-
-    if (storage.enabled === false || !SNOWFLAKE.test(targetUserId)) return null;
+function validHttpUrl(value: string): string | null {
     try {
-        parsed = new URL(imageUrl);
+        const parsed = new URL(value.trim());
+        return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : null;
     } catch {
         return null;
     }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+}
 
-    const cached = storage.cachedImageSourceUrl === parsed.href &&
-        typeof storage.cachedImageDataUrl === "string" && storage.cachedImageDataUrl.startsWith("data:image/")
-        ? storage.cachedImageDataUrl
-        : null;
-    // Never render the remote URL repeatedly. Replacement starts after the one-time cache succeeds.
-    if (!cached) return null;
-    return { enabled: true, targetUserId, imageUrl: cached, debug: storage.debug === true };
+function configuredRules(): { rules: Rule[]; errors: string[] } {
+    const candidates: Array<{ id: string; url: string; label: string }> = [{
+        id: String(storage.targetUserId ?? "").trim(),
+        url: String(storage.imageUrl ?? "").trim(),
+        label: "Primary override",
+    }];
+    String(storage.additionalOverrides ?? "").split(/\r?\n/).forEach((line, index) => {
+        if (!line.trim()) return;
+        const match = line.match(/^\s*(\d+)\s*[|=,]\s*(\S+)\s*$/);
+        candidates.push({ id: match?.[1] ?? "", url: match?.[2] ?? "", label: `Additional line ${index + 1}` });
+    });
+
+    const rules = new Map<string, Rule>();
+    const errors: string[] = [];
+    for (const candidate of candidates) {
+        if (!candidate.id && !candidate.url && candidate.label === "Primary override") continue;
+        const remoteUrl = validHttpUrl(candidate.url);
+        if (!SNOWFLAKE.test(candidate.id)) errors.push(`${candidate.label}: invalid User ID`);
+        else if (!remoteUrl) errors.push(`${candidate.label}: invalid HTTP(S) URL`);
+        else rules.set(candidate.id, { targetUserId: candidate.id, remoteUrl });
+    }
+    return { rules: [...rules.values()], errors };
+}
+
+function cachedImages(): Record<string, string> {
+    const result = storage.cachedImages && typeof storage.cachedImages === "object" ? storage.cachedImages : {};
+    // Read the v2.1 single-image cache without requiring users to download it again.
+    if (storage.cachedImageSourceUrl && storage.cachedImageDataUrl && !result[storage.cachedImageSourceUrl]) {
+        result[storage.cachedImageSourceUrl] = storage.cachedImageDataUrl;
+    }
+    return result;
+}
+
+function configs(): Config[] {
+    if (storage.enabled === false) return [];
+    const cache = cachedImages();
+    return configuredRules().rules.flatMap((rule) => {
+        const imageUrl = cache[rule.remoteUrl];
+        return typeof imageUrl === "string" && imageUrl.startsWith("data:image/")
+            ? [{ targetUserId: rule.targetUserId, imageUrl, debug: storage.debug === true }]
+            : [];
+    });
 }
 
 function setRuntimeStatus(status: string): void {
@@ -60,34 +92,36 @@ function bytesToBase64(bytes: Uint8Array): string {
     return output;
 }
 
-export async function cacheConfiguredImage(force = false): Promise<void> {
-    const rawUrl = String(storage.imageUrl ?? "").trim();
-    let url: URL;
-    try {
-        url = new URL(rawUrl);
-        if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("Only HTTP(S) URLs are supported");
-    } catch {
-        setRuntimeStatus("Image cache failed: enter a valid HTTP(S) image URL.");
+export async function cacheConfiguredImages(force = false): Promise<void> {
+    const { rules, errors } = configuredRules();
+    if (errors.length || !rules.length) {
+        setRuntimeStatus(`Image cache skipped: ${errors[0] || "add at least one valid override."}`);
         return;
     }
-    if (!force && storage.cachedImageSourceUrl === url.href && storage.cachedImageDataUrl) return;
     if (cacheInFlight) return;
 
     cacheInFlight = true;
-    setRuntimeStatus("Downloading the configured image once for local reuse…");
+    setRuntimeStatus(`Caching images for ${rules.length} user(s)…`);
     try {
-        const response = await fetch(url.href);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const contentType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-        if (!contentType.startsWith("image/")) throw new Error(`not an image (${contentType || "unknown type"})`);
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (!bytes.length) throw new Error("empty image");
-        if (bytes.length > MAX_IMAGE_BYTES) throw new Error("image exceeds 5 MiB");
-        // Persist a data URL in plugin storage. Rendering it no longer contacts the image host.
-        storage.cachedImageDataUrl = `data:${contentType};base64,${bytesToBase64(bytes)}`;
-        storage.cachedImageSourceUrl = url.href;
-        setRuntimeStatus(`${loaded ? "Active" : "Cached while disabled"}: image cached locally (${Math.ceil(bytes.length / 1024)} KiB).`);
-        console.log(`${TAG} cached configured image locally (${bytes.length} bytes)`);
+        const cache = { ...cachedImages() };
+        let downloaded = 0;
+        for (const remoteUrl of new Set(rules.map((rule) => rule.remoteUrl))) {
+            if (!force && cache[remoteUrl]?.startsWith("data:image/")) continue;
+            const response = await fetch(remoteUrl);
+            if (!response.ok) throw new Error(`${remoteUrl}: HTTP ${response.status}`);
+            const contentType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+            if (!contentType.startsWith("image/")) throw new Error(`${remoteUrl}: not an image (${contentType || "unknown type"})`);
+            const bytes = new Uint8Array(await response.arrayBuffer());
+            if (!bytes.length) throw new Error(`${remoteUrl}: empty image`);
+            if (bytes.length > MAX_IMAGE_BYTES) throw new Error(`${remoteUrl}: image exceeds 5 MiB`);
+            cache[remoteUrl] = `data:${contentType};base64,${bytesToBase64(bytes)}`;
+            // Commit each successful image so a later URL failure does not discard earlier downloads.
+            storage.cachedImages = { ...cache };
+            downloaded += 1;
+        }
+        storage.cachedImages = cache;
+        setRuntimeStatus(`${loaded ? "Active" : "Cached while disabled"}: ${rules.length} user override(s) ready locally.`);
+        console.log(`${TAG} local image cache ready for ${rules.length} user(s); downloaded ${downloaded}`);
         if (loaded) refreshClient();
     } catch (error) {
         setRuntimeStatus(`Image cache failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -96,6 +130,9 @@ export async function cacheConfiguredImage(force = false): Promise<void> {
         cacheInFlight = false;
     }
 }
+
+/** Backward-compatible export for settings bundles that imported the v2.1 name. */
+export const cacheConfiguredImage = cacheConfiguredImages;
 
 function isKnownChannelId(id: string): boolean {
     try {
@@ -106,21 +143,15 @@ function isKnownChannelId(id: string): boolean {
 }
 
 export function getConfigurationStatus(): string {
-    const targetUserId = String(storage.targetUserId ?? "").trim();
-    const imageUrl = String(storage.imageUrl ?? "").trim();
-    if (!SNOWFLAKE.test(targetUserId)) return "Enter the target person's User ID (not a channel/server ID).";
-    if (isKnownChannelId(targetUserId)) return "This is a Channel ID. Long-press the person's profile and copy their User ID.";
-    try {
-        const parsed = new URL(imageUrl);
-        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error();
-    } catch {
-        return "Enter a complete http:// or https:// image URL.";
-    }
+    const { rules, errors } = configuredRules();
+    if (errors.length) return errors[0];
+    if (!rules.length) return "Add at least one User ID and image URL.";
+    const channelRule = rules.find((rule) => isKnownChannelId(rule.targetUserId));
+    if (channelRule) return `${channelRule.targetUserId} is a Channel ID; copy that person's User ID.`;
     if (storage.enabled === false) return "Configured, but currently disabled.";
-    if (storage.cachedImageSourceUrl !== new URL(imageUrl).href || !storage.cachedImageDataUrl) {
-        return "URL is valid but not cached yet. Tap Download / Refresh local image.";
-    }
-    return "Configuration looks valid. Tap Test / Refresh, then reopen a view containing that user.";
+    const ready = configs().length;
+    if (ready !== rules.length) return `${rules.length - ready} of ${rules.length} override(s) need Download / Refresh local images.`;
+    return `${rules.length} override(s) configured and cached locally.`;
 }
 
 export function getRuntimeStatus(): string {
@@ -177,8 +208,9 @@ function patchHelper(module: Record<string, any>, method: string): void {
     const methods = patchedMethods.get(module) ?? new Set<string>();
     if (methods.has(method)) return;
     const removePatch = instead(method, module, (args: any[], original: (...args: any[]) => any) => {
-        const current = config();
-        if (!current || !args.some((arg: unknown) => argumentIdentifiesTarget(arg, current.targetUserId))) {
+        const current = configs().find((candidate) =>
+            args.some((arg: unknown) => argumentIdentifiesTarget(arg, candidate.targetUserId)));
+        if (!current) {
             return original(...args);
         }
 
@@ -199,15 +231,14 @@ function patchHelper(module: Record<string, any>, method: string): void {
     });
     console.log(`${TAG} installed helper hook: ${method}`);
 }
-
 function patchAvatarComponent(module: Record<string, any>): void {
     if (typeof module?.Avatar !== "function") return;
     const methods = patchedMethods.get(module) ?? new Set<string>();
     if (methods.has("Avatar")) return;
     const removePatch = instead("Avatar", module, (args: any[], original: (...args: any[]) => any) => {
-        const current = config();
         const props = args[0];
-        if (!current || !objectContainsTargetUser(props, current.targetUserId)) return original(...args);
+        const current = configs().find((candidate) => objectContainsTargetUser(props, candidate.targetUserId));
+        if (!current) return original(...args);
 
         const next = { ...props };
         if ("source" in next) next.source = sourceWithUrl(next.source, current.imageUrl);
@@ -230,25 +261,34 @@ function patchAvatarComponent(module: Record<string, any>): void {
 }
 
 export function refreshClient(): void {
-    const targetUserId = String(storage.targetUserId ?? "").trim();
-    if (!SNOWFLAKE.test(targetUserId)) {
-        console.log(`${TAG} refresh skipped: enter the target person's User ID, not a channel ID`);
+    const { rules, errors } = configuredRules();
+    if (errors.length || !rules.length) {
+        console.log(`${TAG} refresh skipped: ${errors[0] || "no valid overrides configured"}`);
         return;
     }
-    if (isKnownChannelId(targetUserId)) {
-        console.log(`${TAG} refresh skipped: configured ID belongs to a channel; copy the person's User ID instead`);
+    const channelRule = rules.find((rule) => isKnownChannelId(rule.targetUserId));
+    if (channelRule) {
+        console.log(`${TAG} refresh skipped: ${channelRule.targetUserId} belongs to a channel; copy the person's User ID instead`);
         return;
     }
-    if (!config() && storage.enabled !== false) {
-        console.log(`${TAG} no matching local image cache; starting the one-time download`);
-        void cacheConfiguredImage(false);
+    if (configs().length !== rules.length && storage.enabled !== false) {
+        console.log(`${TAG} one or more local image caches are missing; starting the one-time download`);
+        void cacheConfiguredImages(false);
         return;
     }
     try {
-        const user = findByStoreName("UserStore")?.getUser(targetUserId);
-        if (!user) return logOnce("refresh:no-user", "target is not currently present in UserStore");
-        FluxDispatcher.dispatch({ type: "USER_UPDATE", user });
-        console.log(`${TAG} requested local UI refresh`);
+        const UserStore = findByStoreName("UserStore");
+        let refreshed = 0;
+        for (const rule of rules) {
+            const user = UserStore?.getUser(rule.targetUserId);
+            if (!user) {
+                logOnce(`refresh:no-user:${rule.targetUserId}`, `target ${rule.targetUserId} is not currently present in UserStore`);
+                continue;
+            }
+            FluxDispatcher.dispatch({ type: "USER_UPDATE", user });
+            refreshed += 1;
+        }
+        console.log(`${TAG} requested local UI refresh for ${refreshed}/${rules.length} user(s)`);
     } catch (error) {
         console.log(`${TAG} local UI refresh was unavailable`, error);
     }
@@ -280,7 +320,8 @@ function discoverAndPatch(): void {
         catch (error) { console.log(`${TAG} could not install Avatar component hook`, error); }
     }
     if (discoveryAttempts === 1 || unpatches.length !== hookCountBeforeDiscovery) {
-        setRuntimeStatus(`Loaded: ${unpatches.length} avatar hook(s) installed${storage.cachedImageDataUrl ? "; local image cache available" : ""}.`);
+        const cachedCount = Object.keys(cachedImages()).length;
+        setRuntimeStatus(`Loaded: ${unpatches.length} avatar hook(s) installed${cachedCount ? `; ${cachedCount} local image(s) cached` : ""}.`);
     }
     if (unpatches.length < 3 && discoveryAttempts < MAX_DISCOVERY_ATTEMPTS) {
         discoveryTimer = setTimeout(discoverAndPatch, RETRY_INTERVAL_MS);
@@ -297,7 +338,7 @@ export function onLoad(): void {
     console.log(`${TAG} loading`);
     setRuntimeStatus("Loading: discovering Discord avatar modules…");
     discoverAndPatch();
-    void cacheConfiguredImage(false);
+    void cacheConfiguredImages(false);
     refreshClient();
 }
 

@@ -2,7 +2,7 @@ import { ReactNative } from "@vendetta/metro/common";
 import { storage } from "@vendetta/plugin";
 import { useProxy } from "@vendetta/storage";
 import { Forms } from "@vendetta/ui/components";
-import { cacheConfiguredImage, getConfigurationStatus, getRuntimeStatus, refreshClient } from "./index";
+import { cacheConfiguredImages, getConfigurationStatus, getRuntimeStatus, refreshClient } from "./index";
 
 const { FormDivider, FormInput, FormRow, FormSwitch } = Forms;
 
@@ -36,13 +36,25 @@ export default function Settings() {
                 onChange={(value: string) => (storage.imageUrl = value.trim())}
             />
             <FormDivider />
+            <FormRow
+                label="Additional user overrides"
+                subLabel="One per line: USER_ID | IMAGE_URL"
+            />
+            <FormInput
+                placeholder={"123456789012345678 | https://example.com/avatar.png\n…"}
+                value={storage.additionalOverrides || ""}
+                multiline={true}
+                numberOfLines={5}
+                onChange={(value: string) => (storage.additionalOverrides = value)}
+            />
+            <FormDivider />
             <FormRow label="Configuration status" subLabel={getConfigurationStatus()} />
             <FormDivider />
             <FormRow label="Runtime status" subLabel={getRuntimeStatus()} />
             <FormRow
-                label="Download / Refresh local image"
+                label="Download / Refresh local images"
                 subLabel="Downloads once (maximum 5 MiB) and then renders the persistent local copy."
-                onPress={() => void cacheConfiguredImage(true)}
+                onPress={() => void cacheConfiguredImages(true)}
             />
             <FormDivider />
             <FormSwitch

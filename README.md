@@ -41,6 +41,17 @@ The settings screen distinguishes two kinds of state:
 
 Avatar modules can be initialized after the plugin during Discord startup. Version 2.1 retries scoped module discovery for up to 20 seconds, without patching the global Image component. This reduces startup races while retaining complete unpatch behavior when the plugin is disabled.
 
+## Multiple users (2.2)
+
+The original **Target User ID** and **Image URL** fields remain the primary override. Add any number of extra overrides in **Additional user overrides**, one per line:
+
+```text
+123456789012345678 | https://example.com/first.png
+234567890123456789 | https://example.com/second.png
+```
+
+`|`, `=`, and `,` are accepted as separators. User IDs are deduplicated (the last configured line wins), every rule still requires an exact target-user match, and each distinct image is downloaded into the persistent local cache. Press **Download / Refresh local images** after adding or changing lines. Configuration status reports how many overrides are configured and how many still need caching.
+
 ## Version 2.0 design
 
 The 1.x implementation copied `targetUserId` and `imageUrl` into constants during `onLoad`. A settings change therefore could not affect installed hooks until the plugin was reloaded. It also replaced two properties directly and assumed every avatar went through `getUserAvatarURL` or `getUserAvatarSource`.
